@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>聽讀播放器</title>
+<style>
+:root {
+  --bg: #f5f3ef; --surface: #ffffff; --surface2: #ede9e3;
+  --border: #d8d2c8; --accent: #2f6bb0; --accent2: #4a9068;
+  --text: #1e1c1a; --text-muted: #6b6560; --text-dim: #a09890;
+  --active-line: #2f6bb014; --active-border: #2f6bb0;
+  --radius: 10px;
+  --bottom-bar: 120px;
+  --tab-bar: 56px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --font-size: 18px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans TC', 'Noto Sans JP', 'PingFang TC', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Meiryo', '微軟正黑體', sans-serif;
+  display: flex; flex-direction: column;
+  overscroll-behavior: none;
+}
+
+/* ── Header ── */
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
+  padding-top: max(12px, env(safe-area-inset-top));
+}
+header h1 { font-size: .85rem; font-weight: 400; color: var(--accent); letter-spacing: .1em; flex: 1; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); flex-shrink: 0; }
+#subtitle-count-header {
+  font-size: .72rem; color: var(--text-dim);
+  font-family: Consolas, Menlo, monospace;
+}
+
+/* ── Video wrap ── */
+#video-wrap { display: none; background: #000; flex-shrink: 0; }
+#video-wrap.show { display: block; }
+#video-wrap video { width: 100%; max-height: 220px; display: block; }
+
+/* ── Subtitle list ── */
+#subtitle-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 6px;
+  position: relative;
+  -webkit-overflow-scrolling: touch;
+}
+#subtitle-list::-webkit-scrollbar { display: none; }
+
+.empty-state {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  height: 100%; gap: 12px;
+  color: var(--text-dim); font-size: .9rem;
+}
+.empty-state .big { font-size: 3rem; }
+.empty-state p { text-align: center; line-height: 1.8; }
+
+.cue {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 0 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border-left: 3px solid transparent;
+  margin-bottom: 3px;
+  cursor: pointer;
+  transition: background .1s;
+  align-items: start;
+}
+.cue:active { background: #2f6bb018; }
+.cue.active { background: var(--active-line); border-left-color: var(--active-border); }
+.cue-time { font-family: Consolas, Menlo, monospace; font-size: 13px; color: var(--text-dim); line-height: 1.6; padding-top: 3px; }
+.cue.active .cue-time { color: var(--accent); }
+.cue-text { font-size: var(--font-size); line-height: 1.6; color: var(--text); font-weight: 400; }
+.cue.active .cue-text { color: var(--accent); font-weight: 700; }
+.cue-translation { font-size: calc(var(--font-size) * 0.82); line-height: 1.55; color: var(--text-muted); margin-top: 4px; display: none; }
+.show-translation .cue-translation { display: block; }
+
+/* ── Bottom bar (fixed) ── */
+.bottom-bar {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  padding-bottom: var(--safe-bottom);
+}
+
+/* Progress row */
+.progress-wrap {
+  height: 28px; display: flex; align-items: center;
+  padding: 0 16px; cursor: pointer; touch-action: none;
+}
+.progress-track { position: relative; flex: 1; height: 4px; background: var(--surface2); border-radius: 2px; }
+.progress-fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--accent); border-radius: 2px; width: 0; }
+.progress-thumb {
+  position: absolute; top: 50%;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--surface);
+  box-shadow: 0 1px 5px #0003;
+  transform: translate(-50%, -50%);
+  left: 0; opacity: 0;
+  transition: opacity .2s;
+  pointer-events: none;
+}
+
+/* Controls row */
+.controls-row {
+  display: flex; align-items: center;
+  padding: 6px 12px 8px;
+  gap: 8px;
+}
+.btn-play {
+  width: 52px; height: 52px; border-radius: 50%;
+  border: none; background: var(--accent); color: #fff;
+  font-size: 1.3rem; cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s; box-shadow: 0 2px 8px #2f6bb030;
+}
+.btn-play:disabled { background: var(--border); box-shadow: none; }
+.btn-play:active { background: #245a9a; }
+
+.btn-skip {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1.5px solid var(--border); background: transparent;
+  color: var(--text-muted); font-size: 1rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: all .12s;
+}
+.btn-skip:active { background: var(--surface2); color: var(--accent); border-color: var(--accent); }
+
+.time-display {
+  flex: 1; text-align: center;
+  font-family: Consolas, Menlo, monospace;
+  font-size: .8rem; color: var(--text-muted);
+  line-height: 1.3;
+}
+
+/* Tab bar */
+.tab-bar {
+  display: flex; border-top: 1px solid var(--border);
+}
+.tab-btn {
+  flex: 1; padding: 10px 4px 8px;
+  background: transparent; border: none; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  color: var(--text-dim); font-size: .65rem;
+  font-family: 'Noto Sans TC', 'PingFang TC', '微軟正黑體', sans-serif;
+  transition: color .12s;
+}
+.tab-btn .tab-icon { font-size: 1.2rem; }
+.tab-btn.active { color: var(--accent); }
+
+/* ── Sheet overlay ── */
+.sheet-overlay {
+  position: fixed; inset: 0; background: #0005;
+  opacity: 0; pointer-events: none;
+  transition: opacity .25s; z-index: 10;
+}
+.sheet-overlay.show { opacity: 1; pointer-events: all; }
+
+/* ── Bottom sheet ── */
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  background: var(--surface);
+  border-radius: 18px 18px 0 0;
+  padding: 0 0 var(--safe-bottom);
+  transform: translateY(100%);
+  transition: transform .3s cubic-bezier(.32,.72,0,1);
+  z-index: 11;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.sheet.show { transform: translateY(0); }
+.sheet-handle {
+  width: 40px; height: 4px; border-radius: 2px;
+  background: var(--border); margin: 12px auto 8px;
+}
+.sheet-title {
+  text-align: center; font-size: .85rem; color: var(--text-muted);
+  padding-bottom: 12px; border-bottom: 1px solid var(--border);
+  margin: 0 16px;
+}
+.sheet-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+
+/* Sheet rows */
+.sheet-row {
+  display: flex; align-items: center; gap: 12px;
+}
+.sheet-label { font-size: .9rem; color: var(--text); flex: 1; }
+.sheet-sublabel { font-size: .78rem; color: var(--text-muted); margin-top: 2px; }
+
+/* Toggle */
+.toggle { position: relative; width: 44px; height: 24px; cursor: pointer; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-track { position: absolute; inset: 0; background: var(--border); border-radius: 12px; transition: background .2s; }
+.toggle input:checked + .toggle-track { background: var(--accent2); }
+.toggle-thumb { position: absolute; width: 18px; height: 18px; border-radius: 50%; background: #fff; top: 3px; left: 3px; transition: left .2s; pointer-events: none; box-shadow: 0 1px 3px #0003; }
+.toggle input:checked ~ .toggle-thumb { left: 23px; }
+
+/* Sliders */
+input[type=range].sheet-slider {
+  flex: 1; -webkit-appearance: none; height: 4px;
+  background: var(--border); border-radius: 2px; outline: none; cursor: pointer;
+}
+input[type=range].sheet-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 22px; height: 22px;
+  border-radius: 50%; background: var(--accent); cursor: pointer;
+  box-shadow: 0 1px 4px #0002;
+}
+.slider-val {
+  font-family: Consolas, Menlo, monospace;
+  font-size: .82rem; color: var(--text-muted);
+  min-width: 52px; text-align: right;
+}
+
+/* File buttons */
+.file-btn {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface2); border-radius: var(--radius);
+  border: 1.5px dashed var(--border);
+  cursor: pointer; position: relative; overflow: hidden;
+  transition: border-color .15s, background .15s;
+}
+.file-btn:active { background: #2f6bb010; border-color: var(--accent); }
+.file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.file-btn-icon { font-size: 1.4rem; flex-shrink: 0; }
+.file-btn-text { flex: 1; }
+.file-btn-text .fbt-title { font-size: .9rem; color: var(--text); }
+.file-btn-text .fbt-meta { font-size: .78rem; color: var(--text-muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Audio element (hidden) */
+audio { display: none; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: calc(140px + var(--safe-bottom)); left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  background: #1e1c1aee; color: #fff;
+  padding: 9px 18px; border-radius: 99px;
+  font-size: .8rem; opacity: 0;
+  transition: all .3s; pointer-events: none;
+  font-family: Consolas, Menlo, monospace;
+  z-index: 99; white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="dot"></div>
+  <h1>聽讀播放器</h1>
+  <span id="subtitle-count-header"></span>
+</header>
+
+<!-- Hidden media elements -->
+<audio id="audio-el"></audio>
+<div id="video-wrap"><video id="video-el"></video></div>
+
+<!-- Subtitle list -->
+<div id="subtitle-list">
+  <div class="empty-state">
+    <span class="big">🎵</span>
+    <p>點擊下方「檔案」<br>載入音影檔與字幕</p>
+  </div>
+</div>
+
+<!-- Bottom bar -->
+<div class="bottom-bar">
+  <!-- Progress -->
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-track" id="progress-track">
+      <div class="progress-fill" id="progress-fill"></div>
+      <div class="progress-thumb" id="progress-thumb"></div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls-row">
+    <button class="btn-skip" id="btn-prev">⏮</button>
+    <button class="btn-play" id="btn-play" disabled>▶</button>
+    <button class="btn-skip" id="btn-next">⏭</button>
+    <button class="btn-skip" id="btn-replay" style="font-size:.85rem">↩</button>
+    <div class="time-display" id="time-display">00:00<br>/ 00:00</div>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    <button class="tab-btn" id="tab-settings" onclick="openSheet('settings')">
+      <span class="tab-icon">⚙️</span>設定
+    </button>
+    <button class="tab-btn" id="tab-files" onclick="openSheet('files')">
+      <span class="tab-icon">📂</span>檔案
+    </button>
+  </div>
+</div>
+
+<!-- Overlay -->
+<div class="sheet-overlay" id="sheet-overlay" onclick="closeSheet()"></div>
+
+<!-- Settings sheet -->
+<div class="sheet" id="sheet-settings">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">設定</div>
+  <div class="sheet-body">
+
+    <div class="sheet-row">
+      <div class="sheet-label">顯示翻譯
+        <div class="sheet-sublabel">偵測到雙語字幕時自動開啟</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="toggle-trans">
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+
+    <div>
+      <div class="sheet-row" style="margin-bottom:10px">
+        <div class="sheet-label">播放速度</div>
+        <span class="slider-val" id="speed-label">× 1.00</span>
+      </div>
+      <div class="sheet-row">
+        <input type="range" class="sheet-slider" id="speed-slider" min="0.5" max="2.0" step="0.05" value="1.0">
+      </div>
+    </div>
+
+    <div>
+      <div class="sheet-row" style="margin-bottom:10px">
+        <div class="sheet-label">字幕字體大小</div>
+        <span class="slider-val" id="font-size-label">18px</span>
+      </div>
+      <div class="sheet-row" style="gap:10px">
+        <button class="btn-skip" id="btn-font-dec" style="width:36px;height:36px;font-size:.8rem">A-</button>
+        <input type="range" class="sheet-slider" id="font-size-slider" min="14" max="48" step="1" value="18">
+        <button class="btn-skip" id="btn-font-inc" style="width:36px;height:36px;font-size:.8rem">A+</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Files sheet -->
+<div class="sheet" id="sheet-files">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">載入檔案</div>
+  <div class="sheet-body">
+
+    <div class="file-btn" id="audio-file-btn">
+      <input type="file" id="audio-file-input" accept=".mp3,.mp4,.mkv,.mov,.avi,.webm,.ogg,.wav,.m4a,.aac,.flac">
+      <span class="file-btn-icon">🎵</span>
+      <div class="file-btn-text">
+        <div class="fbt-title" id="audio-btn-title">載入音影檔</div>
+        <div class="fbt-meta" id="audio-btn-meta">MP3 · MP4 · WAV · OGG · M4A · WebM</div>
+      </div>
+    </div>
+
+    <div class="file-btn" id="srt-file-btn">
+      <input type="file" id="srt-file-input" accept=".srt">
+      <span class="file-btn-icon">📄</span>
+      <div class="file-btn-text">
+        <div class="fbt-title" id="srt-btn-title">載入字幕</div>
+        <div class="fbt-meta" id="srt-btn-meta">SRT 格式，支援雙語字幕</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── State ───
+let cues = [], cueEls = [], currentIdx = -1;
+let showTrans = false;
+let activeMedia = null;
+let playPromise = null;
+let objURL = null;
+let isDragging = false;
+let scrollAnim = null;
+let lastRafTime = -1;
+
+// ─── DOM ───
+const audioEl       = document.getElementById('audio-el');
+const videoEl       = document.getElementById('video-el');
+const videoWrap     = document.getElementById('video-wrap');
+const subtitleList  = document.getElementById('subtitle-list');
+const btnPlay       = document.getElementById('btn-play');
+const progressWrap  = document.getElementById('progress-wrap');
+const progressTrack = document.getElementById('progress-track');
+const progressFill  = document.getElementById('progress-fill');
+const progressThumb = document.getElementById('progress-thumb');
+const timeDisplay   = document.getElementById('time-display');
+const speedSlider   = document.getElementById('speed-slider');
+const speedLabel    = document.getElementById('speed-label');
+const toggleTrans   = document.getElementById('toggle-trans');
+const fontSizeSlider= document.getElementById('font-size-slider');
+const fontSizeLabel = document.getElementById('font-size-label');
+const toastEl       = document.getElementById('toast');
+let toastTimer;
+
+// ─── Toast ───
+function toast(msg, ms=2500) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>toastEl.classList.remove('show'), ms);
+}
+
+// ─── Sheet ───
+function openSheet(name) {
+  document.getElementById('sheet-overlay').classList.add('show');
+  document.getElementById('sheet-'+name).classList.add('show');
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  const tb = document.getElementById('tab-'+name);
+  if (tb) tb.classList.add('active');
+}
+function closeSheet() {
+  document.getElementById('sheet-overlay').classList.remove('show');
+  document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('show'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+}
+
+// ─── Time ───
+function fmt(s) {
+  if (!s||isNaN(s)) return '00:00';
+  return String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
+}
+function srtSec(t) {
+  t = t.trim().replace(',','.');
+  const p = t.split(':');
+  if (p.length===3) return +p[0]*3600 + +p[1]*60 + +p[2];
+  if (p.length===2) return +p[0]*60 + +p[1];
+  return 0;
+}
+
+// ─── SRT Parser ───
+function parseSRT(raw) {
+  raw = raw.replace(/\r\n/g,'\n').replace(/\r/g,'\n').trim()+'\n\n';
+  const result = [];
+  for (const block of raw.split(/\n\n+/)) {
+    const lines = block.trim().split('\n');
+    if (lines.length < 2) continue;
+    let i = /^\d+$/.test(lines[0].trim()) ? 1 : 0;
+    const m = lines[i] && lines[i].match(/(\S+)\s*-->\s*(\S+)/);
+    if (!m) continue;
+    const text = lines.slice(i+1).map(l=>l.replace(/<[^>]+>/g,'').trim()).filter(Boolean);
+    if (!text.length) continue;
+    result.push({ start:srtSec(m[1]), end:srtSec(m[2]), text:text[0], translation:text[1]||'' });
+  }
+  result.sort((a,b)=>a.start-b.start);
+  for (let i=0;i<result.length-1;i++) {
+    if (result[i].end > result[i+1].start) result[i].end = result[i+1].start;
+  }
+  return result;
+}
+
+// ─── Render subtitles ───
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderSubtitles() {
+  cueEls = [];
+  if (!cues.length) {
+    subtitleList.innerHTML = '<div class="empty-state"><span class="big">📄</span><p>尚未載入字幕</p></div>';
+    document.getElementById('subtitle-count-header').textContent = '0 句';
+    return;
+  }
+  document.getElementById('subtitle-count-header').textContent = '— / '+cues.length;
+  const frag = document.createDocumentFragment();
+  cues.forEach((c,i) => {
+    const d = document.createElement('div');
+    d.className = 'cue';
+    d.dataset.i = i;
+    d.innerHTML =
+      '<div class="cue-time">'+fmt(c.start)+'</div>' +
+      '<div class="cue-content">' +
+        '<div class="cue-text">'+esc(c.text)+'</div>' +
+        (c.translation ? '<div class="cue-translation">'+esc(c.translation)+'</div>' : '') +
+      '</div>';
+    d.addEventListener('click', () => {
+      if (!activeMedia) return;
+      activeMedia.currentTime = c.start;
+      if (activeMedia.paused) {
+        playPromise = activeMedia.play();
+        if (playPromise) playPromise.then(()=>{playPromise=null;}).catch(()=>{playPromise=null;});
+      }
+    });
+    cueEls.push(d);
+    frag.appendChild(d);
+  });
+  subtitleList.innerHTML = '';
+  subtitleList.appendChild(frag);
+  applyTrans();
+}
+
+// ─── Binary search ───
+function findCueIdx(t) {
+  if (!cues.length) return -1;
+  let lo=0, hi=cues.length-1, best=-1;
+  while (lo<=hi) {
+    const mid=(lo+hi)>>1;
+    if (cues[mid].start<=t) { best=mid; lo=mid+1; } else hi=mid-1;
+  }
+  if (best>=0 && t<cues[best].end) return best;
+  return best;
+}
+
+// ─── Smooth scroll ───
+function smoothScrollTo(target, duration) {
+  const start = subtitleList.scrollTop;
+  const delta = target - start;
+  if (Math.abs(delta)<1) return;
+  const t0 = performance.now();
+  if (scrollAnim) cancelAnimationFrame(scrollAnim);
+  function step(now) {
+    const p = Math.min((now-t0)/duration, 1);
+    const ease = 1 - Math.pow(1-p, 3);
+    subtitleList.scrollTop = start + delta * ease;
+    if (p<1) scrollAnim = requestAnimationFrame(step);
+    else scrollAnim = null;
+  }
+  scrollAnim = requestAnimationFrame(step);
+}
+
+// ─── Highlight cue ───
+function highlightCue(t) {
+  const idx = findCueIdx(t);
+  if (idx===currentIdx) return;
+  if (currentIdx>=0 && cueEls[currentIdx]) cueEls[currentIdx].classList.remove('active');
+  currentIdx = idx;
+  if (idx<0 && cues.length) document.getElementById('subtitle-count-header').textContent = '— / '+cues.length;
+  if (idx>=0 && cueEls[idx]) {
+    const el = cueEls[idx];
+    el.classList.add('active');
+    document.getElementById('subtitle-count-header').textContent = (idx+1)+' / '+cues.length;
+    const listTop    = subtitleList.scrollTop;
+    const listBottom = listTop + subtitleList.clientHeight;
+    const elTop      = el.offsetTop;
+    const elBottom   = elTop + el.offsetHeight;
+    if (elBottom > listBottom) {
+      smoothScrollTo(elTop - 8, 280);
+    } else if (elTop < listTop) {
+      smoothScrollTo(elTop-8, 200);
+    }
+  }
+}
+
+// ─── Translation ───
+function applyTrans() { subtitleList.classList.toggle('show-translation', showTrans); }
+toggleTrans.addEventListener('change', ()=>{ showTrans=toggleTrans.checked; applyTrans(); });
+
+// ─── Font size ───
+function applyFontSize(px) {
+  document.documentElement.style.setProperty('--font-size', px+'px');
+  fontSizeLabel.textContent = px+'px';
+  fontSizeSlider.value = px;
+}
+fontSizeSlider.addEventListener('input', ()=>applyFontSize(parseInt(fontSizeSlider.value)));
+document.getElementById('btn-font-dec').addEventListener('click', ()=>applyFontSize(Math.max(14, parseInt(fontSizeSlider.value)-2)));
+document.getElementById('btn-font-inc').addEventListener('click', ()=>applyFontSize(Math.min(48, parseInt(fontSizeSlider.value)+2)));
+
+// ─── Speed ───
+speedSlider.addEventListener('input', ()=>{
+  const v = parseFloat(speedSlider.value);
+  speedLabel.textContent = '× '+v.toFixed(2);
+  if (activeMedia) activeMedia.playbackRate = v;
+});
+
+// ─── Bind media events ───
+function bindEvents(el) {
+  el.addEventListener('timeupdate', ()=>{
+    const t=el.currentTime, d=el.duration||0;
+    const ratio = d ? t/d : 0;
+    progressFill.style.width = (ratio*100)+'%';
+    if (!isDragging) progressThumb.style.left = (ratio*100)+'%';
+    timeDisplay.innerHTML = fmt(t)+'<br>/ '+fmt(d);
+  });
+  el.addEventListener('play',  ()=>{ btnPlay.textContent='⏸'; });
+  el.addEventListener('pause', ()=>{ btnPlay.textContent='▶'; });
+  el.addEventListener('ended', ()=>{ btnPlay.textContent='▶'; playPromise=null; });
+  el.addEventListener('canplay', ()=>{
+    btnPlay.disabled = false;
+    el.playbackRate = parseFloat(speedSlider.value);
+    progressThumb.style.opacity = '1';
+  });
+  el.addEventListener('error', ()=>{
+    const c = el.error ? el.error.code : 0;
+    const msgs={1:'載入中斷',2:'網路錯誤',3:'解碼失敗',4:'格式不支援'};
+    toast('⚠ '+(msgs[c]||'播放錯誤'));
+    btnPlay.disabled = false; playPromise = null;
+  });
+}
+bindEvents(audioEl);
+bindEvents(videoEl);
+
+// ─── rAF loop ───
+function rafLoop() {
+  if (activeMedia && !activeMedia.paused && !activeMedia.ended) {
+    const t = activeMedia.currentTime;
+    if (t !== lastRafTime) { lastRafTime=t; highlightCue(t); }
+  }
+  requestAnimationFrame(rafLoop);
+}
+rafLoop();
+
+// ─── Load media ───
+const VIDEO_EXT = new Set(['mp4','mkv','mov','avi','webm']);
+const AUDIO_EXT = new Set(['mp3','wav','ogg','m4a','aac','flac','opus']);
+
+function loadMedia(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  const isVideo = VIDEO_EXT.has(ext);
+  safeStop();
+  if (objURL) { URL.revokeObjectURL(objURL); objURL=null; }
+  activeMedia = isVideo ? videoEl : audioEl;
+  videoWrap.classList.toggle('show', isVideo);
+  objURL = URL.createObjectURL(file);
+  btnPlay.disabled = true;
+  progressThumb.style.opacity = '0';
+  activeMedia.src = objURL;
+  activeMedia.load();
+  // Update file button
+  document.getElementById('audio-btn-title').textContent = file.name;
+  document.getElementById('audio-btn-meta').textContent = (file.size/1048576).toFixed(1)+' MB · '+(isVideo?'影片':'音訊');
+  toast('✓ 已載入：'+file.name);
+}
+
+function safeStop() {
+  if (!activeMedia) return;
+  if (playPromise!==null) {
+    playPromise.then(()=>{ activeMedia&&activeMedia.pause(); }).catch(()=>{});
+  } else { try{ activeMedia.pause(); }catch(e){} }
+  playPromise = null;
+}
+
+// ─── Load SRT ───
+function loadSRT(file) {
+  const r = new FileReader();
+  r.onload = e => {
+    cues = parseSRT(e.target.result);
+    currentIdx = -1;
+    const hasTrans = cues.some(c=>c.translation);
+    showTrans = hasTrans;
+    toggleTrans.checked = hasTrans;
+    applyTrans();
+    renderSubtitles();
+    document.getElementById('srt-btn-title').textContent = file.name;
+    document.getElementById('srt-btn-meta').textContent = cues.length+' 句字幕'+(hasTrans?' · 雙語':'');
+    toast('✓ 字幕載入完畢 · '+cues.length+' 句'+(hasTrans?' (雙語)':''));
+  };
+  r.onerror = ()=>toast('⚠ 字幕讀取失敗');
+  r.readAsText(file,'UTF-8');
+}
+
+// ─── Play/Pause ───
+function togglePlay() {
+  if (!activeMedia || btnPlay.disabled) { toast('⚠ 請先載入音影檔'); return; }
+  if (activeMedia.paused) {
+    playPromise = activeMedia.play();
+    if (playPromise) playPromise.then(()=>{playPromise=null;}).catch(e=>{ playPromise=null; if(e.name!=='AbortError') toast('播放錯誤：'+e.message); });
+  } else {
+    if (playPromise!==null) {
+      playPromise.then(()=>{ activeMedia&&activeMedia.pause(); playPromise=null; }).catch(()=>{playPromise=null;});
+    } else { activeMedia.pause(); }
+  }
+}
+btnPlay.addEventListener('click', togglePlay);
+
+// ─── Jump / Replay ───
+function jumpCue(dir) {
+  if (!activeMedia||!cues.length) return;
+  const idx = Math.max(0, Math.min(cues.length-1, currentIdx+dir));
+  activeMedia.currentTime = cues[idx].start;
+  if (activeMedia.paused) {
+    playPromise = activeMedia.play();
+    if (playPromise) playPromise.then(()=>{playPromise=null;}).catch(()=>{playPromise=null;});
+  }
+}
+function replayCue() {
+  if (!activeMedia||currentIdx<0) return;
+  activeMedia.currentTime = cues[currentIdx].start;
+  if (activeMedia.paused) {
+    playPromise = activeMedia.play();
+    if (playPromise) playPromise.then(()=>{playPromise=null;}).catch(()=>{playPromise=null;});
+  }
+}
+document.getElementById('btn-prev').addEventListener('click', ()=>jumpCue(-1));
+document.getElementById('btn-next').addEventListener('click', ()=>jumpCue(1));
+document.getElementById('btn-replay').addEventListener('click', replayCue);
+
+// ─── Progress bar (touch + mouse) ───
+function setProgressFromX(clientX) {
+  if (!activeMedia||!activeMedia.duration) return;
+  const r = progressTrack.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (clientX-r.left)/r.width));
+  activeMedia.currentTime = ratio * activeMedia.duration;
+  progressFill.style.width = (ratio*100)+'%';
+  progressThumb.style.left = (ratio*100)+'%';
+}
+progressWrap.addEventListener('mousedown', e=>{ e.preventDefault(); isDragging=true; setProgressFromX(e.clientX); });
+document.addEventListener('mousemove', e=>{ if(isDragging) setProgressFromX(e.clientX); });
+document.addEventListener('mouseup', ()=>{ isDragging=false; });
+progressWrap.addEventListener('touchstart', e=>{ isDragging=true; setProgressFromX(e.touches[0].clientX); },{passive:true});
+document.addEventListener('touchmove', e=>{ if(isDragging) setProgressFromX(e.touches[0].clientX); },{passive:true});
+document.addEventListener('touchend', ()=>{ isDragging=false; });
+
+// ─── File inputs ───
+document.getElementById('audio-file-input').addEventListener('change', function(){
+  if (this.files.length) { loadMedia(this.files[0]); this.value=''; closeSheet(); }
+});
+document.getElementById('srt-file-input').addEventListener('change', function(){
+  if (this.files.length) { loadSRT(this.files[0]); this.value=''; closeSheet(); }
+});
+</script>
+</body>
+</html>
