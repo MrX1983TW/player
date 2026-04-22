@@ -34,6 +34,10 @@
   .gdrive-row { display: flex; gap: 8px; margin: 0 16px 10px; }
   .btn-gdrive { flex: 1; padding: 8px 6px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted); font-size: .78rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; transition: all .15s; font-family: '微軟正黑體','PingFang TC',sans-serif; }
   .btn-gdrive:hover { border-color: var(--accent); color: var(--accent); background: #2f6bb008; }
+  .btn-unload { width: 100%; margin: 0 16px 12px; width: calc(100% - 32px); padding: 8px; border-radius: var(--radius); border: 1px solid #e8baba; background: #fdf2f2; color: #c0392b; font-size: .8rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all .15s; font-family: '微軟正黑體','PingFang TC',sans-serif; }
+  .btn-unload:hover { background: #fae0e0; border-color: #c0392b; }
+  .btn-unload { display: none; }
+  .btn-unload.show { display: flex; }
   .file-info { margin: 0 16px 10px; padding: 10px 14px; background: var(--surface2); border-radius: var(--radius); border-left: 2px solid var(--accent2); display: none; position: relative; cursor: pointer; transition: background .15s, border-color .15s; user-select: none; }
   .file-info:hover { background: #2f6bb010; border-left-color: var(--accent); }
   .file-info .replace-hint { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: .7rem; color: var(--text-dim); opacity: 0; transition: opacity .15s; pointer-events: none; }
@@ -129,13 +133,13 @@
         accept=".mp3,.mp4,.mkv,.mov,.avi,.webm,.ogg,.wav,.m4a,.aac,.flac,.srt">
       <span class="icon">🎵</span>
       <p>拖曳或點擊選取檔案</p>
-      <p class="hint">音影檔 + SRT 字幕（可同時選取）<br>MP3 · MP4 · WAV · OGG · WebM · M4A</p>
+      <p class="hint">影音檔 + SRT 字幕（可同時選取）<br>MP3 · MP4 · WAV · OGG · WebM · M4A</p>
     </div>
 
 
     <div class="gdrive-row">
       <button class="btn-gdrive" onclick="openGDrivePicker('both')">☁ Drive 選取</button>
-      <button class="btn-gdrive" onclick="openGDrivePicker('media')">☁ 音影檔</button>
+      <button class="btn-gdrive" onclick="openGDrivePicker('media')">☁ 影音檔</button>
       <button class="btn-gdrive" onclick="openGDrivePicker('srt')">☁ 字幕</button>
     </div>
     <div class="file-info" id="audio-info">
@@ -151,6 +155,7 @@
       <span class="replace-hint">點擊更換</span>
     </div>
 
+    <button class="btn-unload" id="btn-unload" onclick="unloadAll()">✕ 卸載全部檔案</button>
     <div class="controls">
       <!-- Hidden <audio> element for audio playback -->
       <audio id="audio-el"></audio>
@@ -397,6 +402,7 @@ function loadMedia(file) {
   document.getElementById('audio-meta').textContent =
     (file.size/1048576).toFixed(1)+' MB · '+(isVideo?'影片':'音訊');
 
+  document.getElementById('btn-unload').classList.add('show');
   toast('✓ 已載入：'+file.name);
 }
 
@@ -418,7 +424,7 @@ function safeStop() {
 // ─────────────────────────────────────────
 function togglePlay() {
   if (!activeMedia || btnPlay.disabled) {
-    toast('⚠ 請先載入音影檔');
+    toast('⚠ 請先載入影音檔');
     return;
   }
   if (activeMedia.paused) {
@@ -706,7 +712,7 @@ function handleFiles(files) {
     if (ext==='srt') srtFile=f;
     else if (VIDEO_EXT.has(ext)||AUDIO_EXT.has(ext)) mediaFile=f;
   }
-  if (!mediaFile && !srtFile) { toast('⚠ 請選取音影檔或 SRT 字幕'); return; }
+  if (!mediaFile && !srtFile) { toast('⚠ 請選取影音檔或 SRT 字幕'); return; }
   if (mediaFile) loadMedia(mediaFile);
   if (srtFile)   loadSRT(srtFile);
 }
@@ -802,7 +808,7 @@ function showPicker() {
     .setDeveloperKey(GDRIVE_API_KEY)
     .setCallback(pickerCallback)
     .addView(view)
-    .setTitle(isSRT ? '選取 SRT 字幕檔' : isMedia ? '選取音影檔' : '選取檔案（可選音影檔與字幕）');
+    .setTitle(isSRT ? '選取 SRT 字幕檔' : isMedia ? '選取影音檔' : '選取檔案（可選影音檔與字幕）');
 
   if (isBoth) {
     builder = builder.enableFeature(google.picker.Feature.MULTISELECT_ENABLED);
@@ -834,7 +840,7 @@ function pickerCallback(data) {
       for (const f of files) {
         const ext = f.name.split('.').pop().toLowerCase();
         if (ext === 'srt') { loadSRT(f); loaded.push('字幕'); }
-        else if (MEDIA_EXT.has(ext)) { loadMedia(f); loaded.push('音影檔'); }
+        else if (MEDIA_EXT.has(ext)) { loadMedia(f); loaded.push('影音檔'); }
         else { toast('⚠ 不支援的格式：'+f.name); }
       }
       if (loaded.length) toast('✓ 已載入：'+loaded.join(' + '));
@@ -843,6 +849,40 @@ function pickerCallback(data) {
       toast('⚠ 下載失敗：'+e.message);
       gdriveToken = null;
     });
+}
+
+// ─────────────────────────────────────────
+//  Unload all
+// ─────────────────────────────────────────
+function unloadAll() {
+  safeStop();
+  if (objURL) { URL.revokeObjectURL(objURL); objURL = null; }
+  if (activeMedia) {
+    activeMedia.removeAttribute('src');
+    activeMedia.load();
+  }
+  activeMedia = null;
+  videoWrap.classList.remove('show');
+  btnPlay.disabled = true;
+  btnPlay.textContent = '▶';
+  progressFill.style.width = '0%';
+  progressThumb.style.left = '0%';
+  progressThumb.style.opacity = '0';
+  timeDisplay.textContent = '00:00 / 00:00';
+  // Reset file info boxes
+  document.getElementById('audio-info').classList.remove('show');
+  document.getElementById('srt-info').classList.remove('show');
+  document.getElementById('audio-name').textContent = '—';
+  document.getElementById('audio-meta').textContent = '—';
+  document.getElementById('srt-name').textContent = '—';
+  document.getElementById('srt-meta').textContent = '—';
+  // Reset subtitles
+  cues = []; cueEls = []; currentIdx = -1;
+  renderSubtitles();
+  subtitleCount.textContent = '0 句';
+  // Hide unload button
+  document.getElementById('btn-unload').classList.remove('show');
+  toast('✓ 已卸載所有檔案');
 }
 </script>
 </body>

@@ -275,7 +275,7 @@ audio { display: none; }
 <div id="subtitle-list">
   <div class="empty-state">
     <span class="big">🎵</span>
-    <p>點擊下方「檔案」<br>載入音影檔與字幕</p>
+    <p>點擊下方「檔案」<br>載入影音檔與字幕</p>
   </div>
 </div>
 
@@ -364,7 +364,7 @@ audio { display: none; }
       <input type="file" id="audio-file-input" accept=".mp3,.mp4,.mkv,.mov,.avi,.webm,.ogg,.wav,.m4a,.aac,.flac">
       <span class="file-btn-icon">🎵</span>
       <div class="file-btn-text">
-        <div class="fbt-title" id="audio-btn-title">載入音影檔</div>
+        <div class="fbt-title" id="audio-btn-title">載入影音檔</div>
         <div class="fbt-meta" id="audio-btn-meta">MP3 · MP4 · WAV · OGG · M4A · WebM</div>
       </div>
     </div>
@@ -381,9 +381,10 @@ audio { display: none; }
 
     <div class="gdrive-row-mobile">
       <button class="btn-gdrive-m" onclick="openGDrivePicker('both')">☁ Drive<br>同時選取</button>
-      <button class="btn-gdrive-m" onclick="openGDrivePicker('media')">☁ Drive<br>音影檔</button>
+      <button class="btn-gdrive-m" onclick="openGDrivePicker('media')">☁ Drive<br>影音檔</button>
       <button class="btn-gdrive-m" onclick="openGDrivePicker('srt')">☁ Drive<br>字幕</button>
     </div>
+    <button class="btn-unload-m" id="btn-unload-m" onclick="unloadAll()">✕ 卸載全部檔案</button>
   </div>
 </div>
 
@@ -642,6 +643,7 @@ function loadMedia(file) {
   // Update file button
   document.getElementById('audio-btn-title').textContent = file.name;
   document.getElementById('audio-btn-meta').textContent = (file.size/1048576).toFixed(1)+' MB · '+(isVideo?'影片':'音訊');
+  document.getElementById('btn-unload-m').classList.add('show');
   toast('✓ 已載入：'+file.name);
 }
 
@@ -666,6 +668,7 @@ function loadSRT(file) {
     renderSubtitles();
     document.getElementById('srt-btn-title').textContent = file.name;
     document.getElementById('srt-btn-meta').textContent = cues.length+' 句字幕'+(hasTrans?' · 雙語':'');
+    document.getElementById('btn-unload-m').classList.add('show');
     toast('✓ 字幕載入完畢 · '+cues.length+' 句'+(hasTrans?' (雙語)':''));
   };
   r.onerror = ()=>toast('⚠ 字幕讀取失敗');
@@ -674,7 +677,7 @@ function loadSRT(file) {
 
 // ─── Play/Pause ───
 function togglePlay() {
-  if (!activeMedia || btnPlay.disabled) { toast('⚠ 請先載入音影檔'); return; }
+  if (!activeMedia || btnPlay.disabled) { toast('⚠ 請先載入影音檔'); return; }
   if (activeMedia.paused) {
     playPromise = activeMedia.play();
     if (playPromise) playPromise.then(()=>{playPromise=null;}).catch(e=>{ playPromise=null; if(e.name!=='AbortError') toast('播放錯誤：'+e.message); });
@@ -808,7 +811,7 @@ function showPicker() {
     .setDeveloperKey(GDRIVE_API_KEY)
     .setCallback(pickerCallback)
     .addView(view)
-    .setTitle(isSRT ? '選取 SRT 字幕檔' : isMedia ? '選取音影檔' : '選取檔案（可選音影檔與字幕）');
+    .setTitle(isSRT ? '選取 SRT 字幕檔' : isMedia ? '選取影音檔' : '選取檔案（可選影音檔與字幕）');
 
   if (isBoth) {
     builder = builder.enableFeature(google.picker.Feature.MULTISELECT_ENABLED);
@@ -840,7 +843,7 @@ function pickerCallback(data) {
       for (const f of files) {
         const ext = f.name.split('.').pop().toLowerCase();
         if (ext === 'srt') { loadSRT(f); loaded.push('字幕'); }
-        else if (MEDIA_EXT.has(ext)) { loadMedia(f); loaded.push('音影檔'); }
+        else if (MEDIA_EXT.has(ext)) { loadMedia(f); loaded.push('影音檔'); }
         else { toast('⚠ 不支援的格式：'+f.name); }
       }
       if (loaded.length) toast('✓ 已載入：'+loaded.join(' + '));
@@ -849,6 +852,36 @@ function pickerCallback(data) {
       toast('⚠ 下載失敗：'+e.message);
       gdriveToken = null;
     });
+}
+
+// ─────────────────────────────────────────
+//  Unload all
+// ─────────────────────────────────────────
+function unloadAll() {
+  safeStop();
+  if (objURL) { URL.revokeObjectURL(objURL); objURL = null; }
+  if (activeMedia) { activeMedia.removeAttribute('src'); activeMedia.load(); }
+  activeMedia = null;
+  videoWrap.classList.remove('show');
+  btnPlay.disabled = true;
+  btnPlay.textContent = '▶';
+  progressFill.style.width = '0%';
+  progressThumb.style.left = '0%';
+  progressThumb.style.opacity = '0';
+  timeDisplay.innerHTML = '00:00<br>/ 00:00';
+  // Reset subtitles
+  cues = []; cueEls = []; currentIdx = -1;
+  renderSubtitles();
+  document.getElementById('subtitle-count-header').textContent = '0 句';
+  // Reset file buttons
+  document.getElementById('audio-btn-title').textContent = '載入影音檔';
+  document.getElementById('audio-btn-meta').textContent = 'MP3 · MP4 · WAV · OGG · M4A · WebM';
+  document.getElementById('srt-btn-title').textContent = '載入字幕';
+  document.getElementById('srt-btn-meta').textContent = 'SRT 格式，支援雙語字幕';
+  // Hide unload button
+  document.getElementById('btn-unload-m').classList.remove('show');
+  closeSheet();
+  toast('✓ 已卸載所有檔案');
 }
 </script>
 </body>
