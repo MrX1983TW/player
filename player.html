@@ -21,7 +21,7 @@
 
   .main { display: grid; grid-template-columns: 340px 1fr; flex: 1; overflow: hidden; height: calc(100vh - 57px); }
 
-  .panel-left { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--surface); overflow: hidden; position: sticky; top: 0; }
+  .panel-left { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--surface); overflow-y: auto; overflow-x: hidden; position: sticky; top: 0; }
 
   .drop-zone { border: 1.5px dashed var(--border); border-radius: var(--radius); margin: 16px; padding: 28px 16px; text-align: center; cursor: pointer; transition: all .2s; background: var(--surface2); position: relative; }
   .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: #2f6bb00a; }
