@@ -380,6 +380,7 @@ audio { display: none; }
 
 
     <div class="gdrive-row-mobile">
+      <button class="btn-gdrive-m" onclick="openGDrivePicker('both')">☁ Drive<br>同時選取</button>
       <button class="btn-gdrive-m" onclick="openGDrivePicker('media')">☁ Drive<br>音影檔</button>
       <button class="btn-gdrive-m" onclick="openGDrivePicker('srt')">☁ Drive<br>字幕</button>
     </div>
@@ -784,48 +785,70 @@ function openGDrivePicker(mode) {
 }
 
 function showPicker() {
-  const isSRT = gdrivePickerMode === 'srt';
+  // 'both' mode: show all files, auto-detect by extension
+  // 'media' or 'srt' mode: filtered view
+  const isMedia = gdrivePickerMode === 'media';
+  const isSRT   = gdrivePickerMode === 'srt';
+  const isBoth  = gdrivePickerMode === 'both';
+
   let view = new google.picker.DocsView(google.picker.ViewId.DOCS)
     .setIncludeFolders(true)
     .setSelectFolderEnabled(false);
+
   if (isSRT) {
     view.setMimeTypes('text/plain,application/octet-stream');
-  } else {
+  } else if (isMedia) {
     view.setMimeTypes('audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,audio/flac,video/mp4,video/webm,video/quicktime,video/x-matroska');
   }
-  const picker = new google.picker.PickerBuilder()
+  // 'both': no mime filter — show all files
+
+  let builder = new google.picker.PickerBuilder()
     .setAppId(GDRIVE_CLIENT_ID.split('-')[0])
     .setOAuthToken(gdriveToken)
     .setDeveloperKey(GDRIVE_API_KEY)
     .setCallback(pickerCallback)
     .addView(view)
-    .setTitle(isSRT ? '選取 SRT 字幕檔' : '選取音影檔')
-    .build();
-  picker.setVisible(true);
+    .setTitle(isSRT ? '選取 SRT 字幕檔' : isMedia ? '選取音影檔' : '選取檔案（可選音影檔與字幕）');
+
+  if (isBoth) {
+    builder = builder.enableFeature(google.picker.Feature.MULTISELECT_ENABLED);
+  }
+
+  builder.build().setVisible(true);
 }
 
-function pickerCallback(data) {
-  if (data.action !== google.picker.Action.PICKED) return;
-  const file = data.docs[0];
-  const fileId = file.id;
-  const fileName = file.name;
-  toast('⏳ 下載中：'+fileName);
-  fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?alt=media', {
+const MEDIA_EXT = new Set(['mp3','mp4','mkv','mov','avi','webm','ogg','wav','m4a','aac','flac']);
+
+function downloadFile(fileId, fileName) {
+  return fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?alt=media', {
     headers: { 'Authorization': 'Bearer '+gdriveToken }
   })
   .then(r => {
     if (!r.ok) throw new Error('HTTP '+r.status);
     return r.blob();
   })
-  .then(blob => {
-    const f = new File([blob], fileName, {type: blob.type});
-    if (gdrivePickerMode === 'srt') loadSRT(f);
-    else loadMedia(f);
-  })
-  .catch(e => {
-    toast('⚠ 下載失敗：'+e.message);
-    gdriveToken = null; // reset token on error
-  });
+  .then(blob => new File([blob], fileName, {type: blob.type}));
+}
+
+function pickerCallback(data) {
+  if (data.action !== google.picker.Action.PICKED) return;
+  const docs = data.docs; // array — supports multiselect
+  toast('⏳ 下載中…');
+  Promise.all(docs.map(doc => downloadFile(doc.id, doc.name)))
+    .then(files => {
+      let loaded = [];
+      for (const f of files) {
+        const ext = f.name.split('.').pop().toLowerCase();
+        if (ext === 'srt') { loadSRT(f); loaded.push('字幕'); }
+        else if (MEDIA_EXT.has(ext)) { loadMedia(f); loaded.push('音影檔'); }
+        else { toast('⚠ 不支援的格式：'+f.name); }
+      }
+      if (loaded.length) toast('✓ 已載入：'+loaded.join(' + '));
+    })
+    .catch(e => {
+      toast('⚠ 下載失敗：'+e.message);
+      gdriveToken = null;
+    });
 }
 </script>
 </body>
