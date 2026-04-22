@@ -30,6 +30,10 @@
   .drop-zone p { font-size: .95rem; color: var(--text-muted); line-height: 1.6; font-family: Consolas, Menlo, monospace; }
   .drop-zone .hint { font-size: .85rem; color: var(--text-dim); margin-top: 6px; }
 
+
+  .gdrive-row { display: flex; gap: 8px; margin: 0 16px 10px; }
+  .btn-gdrive { flex: 1; padding: 8px 6px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted); font-size: .78rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; transition: all .15s; font-family: '微軟正黑體','PingFang TC',sans-serif; }
+  .btn-gdrive:hover { border-color: var(--accent); color: var(--accent); background: #2f6bb008; }
   .file-info { margin: 0 16px 10px; padding: 10px 14px; background: var(--surface2); border-radius: var(--radius); border-left: 2px solid var(--accent2); display: none; position: relative; cursor: pointer; transition: background .15s, border-color .15s; user-select: none; }
   .file-info:hover { background: #2f6bb010; border-left-color: var(--accent); }
   .file-info .replace-hint { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: .7rem; color: var(--text-dim); opacity: 0; transition: opacity .15s; pointer-events: none; }
@@ -128,6 +132,11 @@
       <p class="hint">音影檔 + SRT 字幕（可同時選取）<br>MP3 · MP4 · WAV · OGG · WebM · M4A</p>
     </div>
 
+
+    <div class="gdrive-row">
+      <button class="btn-gdrive" onclick="openGDrivePicker('media')">☁ Drive 音影檔</button>
+      <button class="btn-gdrive" onclick="openGDrivePicker('srt')">☁ Drive 字幕</button>
+    </div>
     <div class="file-info" id="audio-info">
       <input type="file" id="replace-audio-input" accept=".mp3,.mp4,.mkv,.mov,.avi,.webm,.ogg,.wav,.m4a,.aac,.flac">
       <div class="name" id="audio-name">—</div>
@@ -715,6 +724,103 @@ document.getElementById('replace-srt-input').addEventListener('change', function
 });
 subtitleList.addEventListener('dragover', e=>e.preventDefault());
 subtitleList.addEventListener('drop', e=>{ e.preventDefault(); handleFiles([...e.dataTransfer.files]); });
+
+// ─────────────────────────────────────────
+//  Google Drive Picker
+//  Loaded lazily — zero impact on playback performance
+// ─────────────────────────────────────────
+const GDRIVE_CLIENT_ID = '249108633261-dbunttnna2190dc1po2lqdai5m4scfle.apps.googleusercontent.com';
+const GDRIVE_API_KEY   = 'AIzaSyAt02xPyzAz96MixqZxjjtftlilFNf5OZY';
+const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.readonly';
+let   gdriveToken      = null;
+let   gdrivePickerMode = null; // 'media' or 'srt'
+let   gapiLoaded       = false;
+let   gisLoaded        = false;
+let   tokenClient      = null;
+
+function loadGDriveScripts(cb) {
+  if (gapiLoaded && gisLoaded) { cb(); return; }
+  // Load GAPI
+  const s1 = document.createElement('script');
+  s1.src = 'https://apis.google.com/js/api.js';
+  s1.onload = () => {
+    gapi.load('picker', () => { gapiLoaded=true; if(gapiLoaded&&gisLoaded) cb(); });
+  };
+  document.head.appendChild(s1);
+  // Load GSI
+  const s2 = document.createElement('script');
+  s2.src = 'https://accounts.google.com/gsi/client';
+  s2.onload = () => {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GDRIVE_CLIENT_ID,
+      scope: GDRIVE_SCOPE,
+      callback: (resp) => {
+        if (resp.error) { toast('⚠ Google 授權失敗'); return; }
+        gdriveToken = resp.access_token;
+        showPicker();
+      }
+    });
+    gisLoaded = true;
+    if (gapiLoaded && gisLoaded) cb();
+  };
+  document.head.appendChild(s2);
+}
+
+function openGDrivePicker(mode) {
+  gdrivePickerMode = mode;
+  loadGDriveScripts(() => {
+    if (!gdriveToken) {
+      tokenClient.requestAccessToken({ prompt: 'consent' });
+    } else {
+      showPicker();
+    }
+  });
+}
+
+function showPicker() {
+  const isSRT = gdrivePickerMode === 'srt';
+  let view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+    .setIncludeFolders(true)
+    .setSelectFolderEnabled(false);
+  if (isSRT) {
+    view.setMimeTypes('text/plain,application/octet-stream');
+  } else {
+    view.setMimeTypes('audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,audio/flac,video/mp4,video/webm,video/quicktime,video/x-matroska');
+  }
+  const picker = new google.picker.PickerBuilder()
+    .setAppId(GDRIVE_CLIENT_ID.split('-')[0])
+    .setOAuthToken(gdriveToken)
+    .setDeveloperKey(GDRIVE_API_KEY)
+    .setCallback(pickerCallback)
+    .addView(view)
+    .setTitle(isSRT ? '選取 SRT 字幕檔' : '選取音影檔')
+    .build();
+  picker.setVisible(true);
+}
+
+function pickerCallback(data) {
+  if (data.action !== google.picker.Action.PICKED) return;
+  const file = data.docs[0];
+  const fileId = file.id;
+  const fileName = file.name;
+  toast('⏳ 下載中：'+fileName);
+  fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?alt=media', {
+    headers: { 'Authorization': 'Bearer '+gdriveToken }
+  })
+  .then(r => {
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    return r.blob();
+  })
+  .then(blob => {
+    const f = new File([blob], fileName, {type: blob.type});
+    if (gdrivePickerMode === 'srt') loadSRT(f);
+    else loadMedia(f);
+  })
+  .catch(e => {
+    toast('⚠ 下載失敗：'+e.message);
+    gdriveToken = null; // reset token on error
+  });
+}
 </script>
 </body>
 </html>
