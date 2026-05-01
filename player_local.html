@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>聽讀播放器</title>
+<style>
+
+  :root {
+    --bg: #f5f3ef; --surface: #ffffff; --surface2: #ede9e3;
+    --border: #d8d2c8; --accent: #2f6bb0; --accent2: #4a9068;
+    --text: #1e1c1a; --text-muted: #6b6560; --text-dim: #a09890;
+    --active-line: #2f6bb014; --active-border: #2f6bb0; --radius: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: '微軟正黑體', 'PingFang TC', 'Yu Gothic', 'Meiryo', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  header { padding: 16px 28px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; background: var(--surface); }
+  header h1 { font-size: 1.1rem; font-weight: 400; letter-spacing: .12em; color: var(--accent); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); }
+
+  .main { display: grid; grid-template-columns: 340px 1fr; flex: 1; overflow: hidden; height: calc(100vh - 57px); }
+
+  .panel-left { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--surface); overflow-y: auto; overflow-x: hidden; position: sticky; top: 0; }
+
+  .drop-zone { border: 1.5px dashed var(--border); border-radius: var(--radius); margin: 14px 16px; padding: 20px 16px; text-align: center; cursor: pointer; transition: all .2s; background: var(--surface2); position: relative; }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: #2f6bb00a; }
+  .drop-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .drop-zone .icon { font-size: 1.9rem; margin-bottom: 6px; display: block; }
+  .drop-zone p { font-size: .95rem; color: var(--text-muted); line-height: 1.6; font-family: Consolas, Menlo, monospace; }
+  .drop-zone .hint { font-size: .85rem; color: var(--text-dim); margin-top: 6px; }
+
+
+  .btn-unload { width: 100%; margin: 0 16px 9px; width: calc(100% - 32px); padding: 7px; border-radius: var(--radius); border: 1px solid #e8baba; background: #fdf2f2; color: #c0392b; font-size: .8rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all .15s; font-family: '微軟正黑體','PingFang TC',sans-serif; }
+  .btn-unload:hover { background: #fae0e0; border-color: #c0392b; }
+  .btn-unload { display: none; }
+  .btn-unload.show { display: flex; }
+  .file-info { margin: 0 16px 9px; padding: 9px 14px; background: var(--surface2); border-radius: var(--radius); border-left: 2px solid var(--accent2); display: none; position: relative; cursor: pointer; transition: background .15s, border-color .15s; user-select: none; }
+  .file-info:hover { background: #2f6bb010; border-left-color: var(--accent); }
+  .file-info .replace-hint { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: .7rem; color: var(--text-dim); opacity: 0; transition: opacity .15s; pointer-events: none; }
+  .file-info:hover .replace-hint { opacity: 1; }
+  .file-info input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .file-info.show { display: block; }
+  .file-info .name { font-size: .92rem; color: var(--text); font-family: Consolas, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-info .meta { font-size: .85rem; color: var(--text-muted); margin-top: 3px; }
+
+  .controls { padding: 0 16px 12px; display: flex; flex-direction: column; gap: 11px; }
+
+  #video-wrap { display: none; }
+  #video-wrap.show { display: block; }
+  #video-wrap video { width: 100%; border-radius: var(--radius); background: #000; max-height: 180px; display: block; }
+
+  .play-controls { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .play-row { display: flex; align-items: center; gap: 10px; }
+  .time-display { font-family: Consolas, Menlo, monospace; font-size: 26px; color: var(--text-muted); letter-spacing: .05em; }
+  .btn-play { width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--accent); color: #ffffff; cursor: pointer; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; transition: all .15s; flex-shrink: 0; }
+  .btn-play:hover { background: #245a9a; transform: scale(1.05); }
+  .btn-play:disabled { background: var(--border); color: var(--text-dim); cursor: not-allowed; transform: none; }
+  .btn-seek { width: 30px; height: 30px; border-radius: var(--radius); border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: .72rem; font-weight: 600; display: flex; align-items: center; justify-content: center; transition: all .15s; flex-shrink: 0; font-family: Consolas, Menlo, monospace; }
+  .btn-seek:hover { border-color: var(--accent); color: var(--accent); }
+
+  .progress-wrap { position: relative; height: 18px; display: flex; align-items: center; cursor: pointer; }
+  .progress-track { position: absolute; left: 0; right: 0; height: 4px; background: var(--surface2); border-radius: 2px; }
+  .progress-fill { position: absolute; left: 0; height: 4px; background: var(--accent); border-radius: 2px; width: 0; pointer-events: none; transition: background .15s; }
+  .progress-thumb { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); box-shadow: 0 1px 4px #0002; transform: translateX(-50%); left: 0; pointer-events: none; transition: transform .1s, background .15s; opacity: 0; }
+  .progress-wrap:hover .progress-fill,
+  .progress-wrap:hover .progress-thumb { background: #245a9a; }
+  .progress-wrap:hover .progress-thumb { transform: translateX(-50%) scale(1.2); }
+
+  .speed-row { display: flex; align-items: center; gap: 8px; }
+  .speed-label { font-size: .88rem; color: var(--text-muted); font-family: Consolas, Menlo, monospace; min-width: 52px; }
+  input[type=range].speed-slider { flex: 1; -webkit-appearance: none; height: 3px; background: var(--border); border-radius: 2px; outline: none; cursor: pointer; }
+  input[type=range].speed-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+
+  .btn-skip { width: 30px; height: 30px; border-radius: var(--radius); border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; transition: all .15s; }
+  .btn-skip:hover { border-color: var(--accent); color: var(--accent); }
+
+  .trans-row { display: flex; align-items: center; gap: 10px; }
+  .trans-label { font-size: .92rem; color: var(--text-muted); flex: 1; }
+  .toggle { position: relative; width: 36px; height: 20px; cursor: pointer; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-track { position: absolute; inset: 0; background: var(--border); border-radius: 10px; transition: background .2s; }
+  .toggle input:checked + .toggle-track { background: var(--accent2); }
+  .toggle-thumb { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #fff; top: 3px; left: 3px; transition: left .2s; pointer-events: none; }
+  .toggle input:checked ~ .toggle-thumb { left: 19px; }
+
+  .kbd-hints { margin: 0 16px 14px; padding: 9px 14px; background: var(--surface2); border-radius: var(--radius); font-size: .7rem; color: var(--text-dim); font-family: Consolas, Menlo, monospace; line-height: 1.8; }
+  .kbd-hints kbd { background: var(--border); color: var(--text-muted); padding: 1px 5px; border-radius: 3px; font-family: inherit; }
+
+  .panel-right { display: flex; flex-direction: column; overflow: hidden; }
+  .subtitle-header { padding: 14px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--surface); flex-shrink: 0; }
+  .subtitle-header h2 { font-size: .8rem; font-weight: 400; letter-spacing: .1em; color: var(--text-muted); }
+  .subtitle-count { font-size: .72rem; font-family: Consolas, Menlo, monospace; color: var(--text-dim); }
+
+  .subtitle-list { flex: 1; overflow-y: auto; padding: 12px 8px; position: relative; }
+
+  .cue { display: grid; grid-template-columns: 80px 1fr; gap: 0 16px; padding: 10px 16px; border-radius: var(--radius); cursor: pointer; transition: background .12s; border-left: 2px solid transparent; margin-bottom: 2px; align-items: start; }
+  .cue:hover { background: #2f6bb010; }
+  .cue.active { background: var(--active-line); border-left-color: var(--active-border); }
+  .cue-time { font-family: Consolas, Menlo, monospace; font-size: 26px; color: var(--text-dim); padding-top: 2px; line-height: 1.6; }
+  .cue.active .cue-time { color: var(--accent); }
+  .cue-text { font-size: var(--subtitle-font-size, 26px); line-height: 1.65; color: var(--text); font-weight: 400; }
+  .cue.active .cue-text { color: var(--accent); font-weight: 700; }
+  .cue-translation { font-size: calc(var(--subtitle-font-size, 26px) * 0.85); line-height: 1.6; color: var(--text-muted); margin-top: 3px; display: none; }
+  .show-translation .cue-translation { display: block; }
+
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--text-dim); font-size: .85rem; }
+  .empty-state .big { font-size: 3rem; }
+  .empty-state p { text-align: center; line-height: 1.8; }
+
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 10px 20px; border-radius: 99px; font-size: .8rem; opacity: 0; transition: all .3s; pointer-events: none; font-family: Consolas, Menlo, monospace; z-index: 999; white-space: nowrap; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 680px) {
+    .main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
+    .panel-left { border-right: none; border-bottom: 1px solid var(--border); }
+    .subtitle-list { max-height: 55vh; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="dot"></div>
+  <h1>聽讀播放器 &nbsp;·&nbsp; OFFLINE PLAYER</h1>
+</header>
+
+<div class="main">
+  <div class="panel-left">
+
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" multiple
+        accept=".mp3,.mp4,.mkv,.mov,.avi,.webm,.ogg,.wav,.m4a,.aac,.flac,.srt">
+      <span class="icon">🎵</span>
+      <p>拖曳或點擊選取檔案</p>
+      <p class="hint">影音檔 + SRT 字幕（可同時選取）<br>MP3 · MP4 · WAV · OGG · WebM · M4A</p>
+    </div>
+
+    <div class="file-info" id="audio-info">
+      <input type="file" id="replace-audio-input" accept=".mp3,.mp4,.mkv,.mov,.avi,.webm,.ogg,.wav,.m4a,.aac,.flac">
+      <div class="name" id="audio-name">—</div>
+      <div class="meta" id="audio-meta">—</div>
+      <span class="replace-hint">點擊更換</span>
+    </div>
+    <div class="file-info" id="srt-info">
+      <input type="file" id="replace-srt-input" accept=".srt">
+      <div class="name" id="srt-name">—</div>
+      <div class="meta" id="srt-meta">—</div>
+      <span class="replace-hint">點擊更換</span>
+    </div>
+
+    <button class="btn-unload" id="btn-unload" onclick="unloadAll()">✕ 卸載全部檔案</button>
+    <div class="controls">
+      <!-- Hidden <audio> element for audio playback -->
+      <audio id="audio-el"></audio>
+
+      <!-- Video wrap — shown only for video files -->
+      <div id="video-wrap">
+        <video id="video-el"></video>
+      </div>
+
+      <div class="progress-wrap" id="progress-wrap">
+        <div class="progress-track"></div>
+        <div class="progress-fill" id="progress-fill"></div>
+        <div class="progress-thumb" id="progress-thumb"></div>
+      </div>
+
+      <div class="play-controls">
+        <div class="time-display" id="time-display">00:00 / 00:00</div>
+        <div class="play-row">
+          <button class="btn-seek" id="btn-back3" title="-3秒 (←)">-3s</button>
+          <button class="btn-skip" id="btn-prev" title="上一句 (F1)">⏮</button>
+          <button class="btn-play" id="btn-play" disabled>▶</button>
+          <button class="btn-skip" id="btn-next" title="下一句 (F2)">⏭</button>
+          <button class="btn-seek" id="btn-fwd3"  title="+3秒 (→)">+3s</button>
+        </div>
+      </div>
+
+      <div class="speed-row">
+        <span class="speed-label" id="speed-label">× 1.0</span>
+        <input type="range" class="speed-slider" id="speed-slider" min="0.5" max="2.0" step="0.05" value="1.0">
+        <button class="btn-skip" id="btn-replay" title="重播此句">↩</button>
+      </div>
+
+      <div class="trans-row">
+        <span class="trans-label">顯示翻譯（SRT 第二行）</span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-trans">
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+
+      <div class="speed-row">
+        <span class="speed-label" id="font-size-label">字 26px</span>
+        <input type="range" class="speed-slider" id="font-size-slider" min="14" max="48" step="1" value="26">
+        <button class="btn-skip" id="btn-font-dec" title="縮小字體">A-</button>
+        <button class="btn-skip" id="btn-font-inc" title="放大字體">A+</button>
+      </div>
+    </div>
+
+    <div class="kbd-hints">
+      <kbd>Esc</kbd> 播放/暫停 &nbsp;
+      <kbd>F1</kbd> 上一句 &nbsp;
+      <kbd>F2</kbd> 下一句 &nbsp;
+      <kbd>F1</kbd>×2 重播此句
+    </div>
+  </div>
+
+  <div class="panel-right">
+    <div class="subtitle-header">
+      <h2>字幕內容</h2>
+      <span class="subtitle-count" id="subtitle-count">0 句</span>
+    </div>
+    <div class="subtitle-list" id="subtitle-list">
+      <div class="empty-state">
+        <span class="big">📂</span>
+        <p>載入 SRT 字幕檔後<br>字幕將顯示於此</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────
+let cues         = [];
+let currentIdx   = -1;
+let showTrans    = false;
+let f1At         = 0;
+let activeMedia  = null;   // points to audioEl or videoEl
+let playPromise  = null;   // track the pending play() Promise
+let objURL       = null;   // current blob URL
+
+// ─────────────────────────────────────────
+//  DOM refs
+// ─────────────────────────────────────────
+const audioEl      = document.getElementById('audio-el');
+const videoEl      = document.getElementById('video-el');
+const videoWrap    = document.getElementById('video-wrap');
+const btnPlay      = document.getElementById('btn-play');
+const progressWrap = document.getElementById('progress-wrap');
+const progressFill = document.getElementById('progress-fill');
+const timeDisplay  = document.getElementById('time-display');
+const speedSlider  = document.getElementById('speed-slider');
+const speedLabel   = document.getElementById('speed-label');
+const subtitleList = document.getElementById('subtitle-list');
+const subtitleCount= document.getElementById('subtitle-count');
+const toggleTrans  = document.getElementById('toggle-trans');
+const dropZone     = document.getElementById('drop-zone');
+const fileInput    = document.getElementById('file-input');
+const toastEl      = document.getElementById('toast');
+let   toastTimer;
+
+// ─────────────────────────────────────────
+//  Toast
+// ─────────────────────────────────────────
+function toast(msg, ms = 2800) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+}
+
+// ─────────────────────────────────────────
+//  Time utilities
+// ─────────────────────────────────────────
+function fmt(s) {
+  if (!s || isNaN(s)) return '00:00';
+  return String(Math.floor(s/60)).padStart(2,'0') + ':' +
+         String(Math.floor(s%60)).padStart(2,'0');
+}
+
+function srtSec(t) {
+  t = t.trim().replace(',','.');
+  const p = t.split(':');
+  if (p.length === 3) return +p[0]*3600 + +p[1]*60 + +p[2];
+  if (p.length === 2) return +p[0]*60 + +p[1];
+  return 0;
+}
+
+// ─────────────────────────────────────────
+//  SRT parser
+// ─────────────────────────────────────────
+function parseSRT(raw) {
+  raw = raw.replace(/\r\n/g,'\n').replace(/\r/g,'\n').trim() + '\n\n';
+  const result = [];
+  for (const block of raw.split(/\n\n+/)) {
+    const lines = block.trim().split('\n');
+    if (lines.length < 2) continue;
+    let i = /^\d+$/.test(lines[0].trim()) ? 1 : 0;
+    const m = lines[i] && lines[i].match(/(\S+)\s*-->\s*(\S+)/);
+    if (!m) continue;
+    const text = lines.slice(i+1).map(l=>l.replace(/<[^>]+>/g,'').trim()).filter(Boolean);
+    if (!text.length) continue;
+    result.push({ start: srtSec(m[1]), end: srtSec(m[2]),
+                  text: text[0], translation: text[1]||'' });
+  }
+
+  // ── 排序（防止時間未依序的 SRT）──
+  result.sort((a, b) => a.start - b.start);
+
+  // ── 修正重疊（確保 end <= 下一句 start）──
+  for (let i = 0; i < result.length - 1; i++) {
+    if (result[i].end > result[i + 1].start) {
+      result[i].end = result[i + 1].start;
+    }
+  }
+
+  return result;
+}
+
+// ─────────────────────────────────────────
+//  Bind media events to an element
+// ─────────────────────────────────────────
+function bindEvents(el) {
+  el.addEventListener('timeupdate', () => {
+    const t = el.currentTime, d = el.duration||0;
+    const ratio = d ? t/d : 0;
+    progressFill.style.width = (ratio*100)+'%';
+    if (!isDragging) {
+      const thumb = document.getElementById('progress-thumb');
+      if (thumb) thumb.style.left = (ratio*100)+'%';
+    }
+    timeDisplay.textContent = fmt(t)+' / '+fmt(d);
+    // Note: subtitle highlight is handled by rAF loop for near-zero latency
+  });
+  el.addEventListener('play',  () => { btnPlay.textContent = '⏸'; });
+  el.addEventListener('pause', () => { btnPlay.textContent = '▶'; });
+  el.addEventListener('ended', () => { btnPlay.textContent = '▶'; playPromise = null; });
+  el.addEventListener('canplay', () => {
+    btnPlay.disabled = false;
+    el.playbackRate = parseFloat(speedSlider.value);
+    progressThumb.style.opacity = '1';
+  });
+  el.addEventListener('error', () => {
+    const c = el.error ? el.error.code : 0;
+    const m = {1:'載入中斷',2:'網路錯誤',3:'解碼失敗',4:'格式不支援'};
+    toast('⚠ ' + (m[c]||'播放錯誤') + ' (code '+c+')');
+    btnPlay.disabled = false;
+    playPromise = null;
+  });
+}
+bindEvents(audioEl);
+bindEvents(videoEl);
+
+// ─────────────────────────────────────────
+//  requestAnimationFrame subtitle loop
+//  Polls currentTime at ~60fps for instant cue switching
+// ─────────────────────────────────────────
+let rafId = null;
+let lastRafTime = -1;
+
+function rafLoop() {
+  if (activeMedia && !activeMedia.paused && !activeMedia.ended) {
+    const t = activeMedia.currentTime;
+    // Only run highlightCue when time actually changes
+    if (t !== lastRafTime) {
+      lastRafTime = t;
+      highlightCue(t);
+    }
+  }
+  rafId = requestAnimationFrame(rafLoop);
+}
+rafLoop(); // start immediately, runs always (idle cost is negligible)
+
+// ─────────────────────────────────────────
+//  Load media file
+// ─────────────────────────────────────────
+const VIDEO_EXT = new Set(['mp4','mkv','mov','avi','webm']);
+const AUDIO_EXT = new Set(['mp3','wav','ogg','m4a','aac','flac','opus']);
+
+function loadMedia(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  const isVideo = VIDEO_EXT.has(ext);
+
+  // 1. Stop & reset current playback first
+  safeStop();
+
+  // 2. Revoke old blob URL
+  if (objURL) { URL.revokeObjectURL(objURL); objURL = null; }
+
+  // 3. Choose the right element
+  activeMedia = isVideo ? videoEl : audioEl;
+  videoWrap.classList.toggle('show', isVideo);
+
+  // 4. Assign source and load
+  objURL = URL.createObjectURL(file);
+  btnPlay.disabled = true;  // re-enabled on 'canplay'
+  progressThumb.style.opacity = '0';
+  activeMedia.src = objURL;
+  activeMedia.load();       // ← essential: tells browser to re-read src
+
+  // 5. Info display
+  document.getElementById('audio-info').classList.add('show');
+  document.getElementById('audio-name').textContent = file.name;
+  document.getElementById('audio-meta').textContent =
+    (file.size/1048576).toFixed(1)+' MB · '+(isVideo?'影片':'音訊');
+
+  document.getElementById('btn-unload').classList.add('show');
+  toast('✓ 已載入：'+file.name);
+}
+
+// ─────────────────────────────────────────
+//  Safe stop (handles pending play promises)
+// ─────────────────────────────────────────
+function safeStop() {
+  if (!activeMedia) return;
+  if (playPromise !== null) {
+    playPromise.then(() => { activeMedia && activeMedia.pause(); }).catch(()=>{});
+  } else {
+    try { activeMedia.pause(); } catch(e){}
+  }
+  playPromise = null;
+}
+
+// ─────────────────────────────────────────
+//  Play / Pause  (handles async race)
+// ─────────────────────────────────────────
+function togglePlay() {
+  if (!activeMedia || btnPlay.disabled) {
+    toast('⚠ 請先載入影音檔');
+    return;
+  }
+  if (activeMedia.paused) {
+    // Start playing — store the promise
+    playPromise = activeMedia.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => { playPromise = null; })
+        .catch(e => {
+          playPromise = null;
+          if (e.name !== 'AbortError') toast('播放錯誤：'+e.message);
+        });
+    }
+  } else {
+    // If play() is still pending, wait for it before pausing
+    if (playPromise !== null) {
+      playPromise.then(() => {
+        activeMedia && activeMedia.pause();
+        playPromise = null;
+      }).catch(()=>{ playPromise = null; });
+    } else {
+      activeMedia.pause();
+    }
+  }
+}
+
+btnPlay.addEventListener('click', togglePlay);
+
+// ─────────────────────────────────────────
+//  Progress bar
+// ─────────────────────────────────────────
+// ─── Progress bar drag ───
+const progressThumb = document.getElementById('progress-thumb');
+let isDragging = false;
+
+function setProgressFromX(clientX) {
+  if (!activeMedia || !activeMedia.duration) return;
+  const r = progressWrap.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+  activeMedia.currentTime = ratio * activeMedia.duration;
+  updateProgressUI(ratio);
+}
+
+function updateProgressUI(ratio) {
+  progressFill.style.width  = (ratio * 100) + '%';
+  progressThumb.style.left  = (ratio * 100) + '%';
+}
+
+// Override timeupdate to also move thumb
+// (patch into existing timeupdate via MutationObserver-free approach — just update thumb in timeupdate)
+const _origTimeUpdate = () => {
+  const t = activeMedia ? activeMedia.currentTime : 0;
+  const d = activeMedia ? (activeMedia.duration || 0) : 0;
+  if (d) updateProgressUI(t / d);
+};
+
+progressWrap.addEventListener('mousedown', e => {
+  e.preventDefault();
+  isDragging = true;
+  setProgressFromX(e.clientX);
+});
+document.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  setProgressFromX(e.clientX);
+});
+document.addEventListener('mouseup', () => { isDragging = false; });
+
+// Touch support
+progressWrap.addEventListener('touchstart', e => {
+  isDragging = true;
+  setProgressFromX(e.touches[0].clientX);
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (!isDragging) return;
+  setProgressFromX(e.touches[0].clientX);
+}, { passive: true });
+document.addEventListener('touchend', () => { isDragging = false; });
+
+// ─────────────────────────────────────────
+//  Speed
+// ─────────────────────────────────────────
+speedSlider.addEventListener('input', () => {
+  const v = parseFloat(speedSlider.value);
+  speedLabel.textContent = '× '+v.toFixed(2);
+  if (activeMedia) activeMedia.playbackRate = v;
+});
+
+// ─────────────────────────────────────────
+//  Jump / Replay
+// ─────────────────────────────────────────
+function jumpCue(dir) {
+  if (!activeMedia || !cues.length) return;
+  const idx = Math.max(0, Math.min(cues.length-1, currentIdx+dir));
+  activeMedia.currentTime = cues[idx].start;
+  if (activeMedia.paused) {
+    playPromise = activeMedia.play();
+    if (playPromise) playPromise.then(()=>{playPromise=null;}).catch(()=>{playPromise=null;});
+  }
+}
+function replayCue() {
+  if (!activeMedia || currentIdx < 0) return;
+  activeMedia.currentTime = cues[currentIdx].start;
+  if (activeMedia.paused) {
+    playPromise = activeMedia.play();
+    if (playPromise) playPromise.then(()=>{playPromise=null;}).catch(()=>{playPromise=null;});
+  }
+}
+
+
+// ── ±3s seek ──
+function seekBy(sec) {
+  if (!activeMedia) return;
+  activeMedia.currentTime = Math.max(0, Math.min(activeMedia.duration || 0, activeMedia.currentTime + sec));
+}
+document.getElementById('btn-back3').addEventListener('click', () => seekBy(-3));
+document.getElementById('btn-fwd3').addEventListener('click',  () => seekBy(3));
+document.getElementById('btn-prev').addEventListener('click', ()=>jumpCue(-1));
+document.getElementById('btn-next').addEventListener('click', ()=>jumpCue(1));
+document.getElementById('btn-replay').addEventListener('click', replayCue);
+
+// ─────────────────────────────────────────
+//  Keyboard shortcuts
+// ─────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) return;
+  if (e.key === 'Escape') { e.preventDefault(); togglePlay(); }
+  if (e.key === 'F1') {
+    e.preventDefault();
+    const now = Date.now();
+    if (now - f1At < 500) replayCue(); else jumpCue(-1);
+    f1At = now;
+  }
+  if (e.key === 'F2') { e.preventDefault(); jumpCue(1); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); seekBy(-3); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); seekBy(3); }
+});
+
+// ─────────────────────────────────────────
+//  Subtitle rendering
+// ─────────────────────────────────────────
+let cueEls = [];  // pre-cached DOM elements, index-aligned with cues[]
+
+function renderSubtitles() {
+  cueEls = [];
+  if (!cues.length) {
+    subtitleList.innerHTML = '<div class="empty-state"><span class="big">📂</span><p>載入 SRT 字幕檔後<br>字幕將顯示於此</p></div>';
+    subtitleCount.textContent = '0 句';
+    return;
+  }
+  subtitleCount.textContent = '— / '+cues.length;
+  // Build fragment off-DOM for one single reflow
+  const frag = document.createDocumentFragment();
+  cues.forEach((c,i) => {
+    const d = document.createElement('div');
+    d.className = 'cue';
+    d.dataset.i = i;
+    d.innerHTML =
+      '<div class="cue-time">'+fmt(c.start)+'</div>' +
+      '<div class="cue-content">' +
+        '<div class="cue-text">'+esc(c.text)+'</div>' +
+        (c.translation ? '<div class="cue-translation">'+esc(c.translation)+'</div>' : '') +
+      '</div>';
+    d.addEventListener('click', () => {
+      if (!activeMedia) return;
+      activeMedia.currentTime = c.start;
+      if (activeMedia.paused) {
+        playPromise = activeMedia.play();
+        if (playPromise) playPromise.then(()=>{playPromise=null;}).catch(()=>{playPromise=null;});
+      }
+    });
+    cueEls.push(d);
+    frag.appendChild(d);
+  });
+  subtitleList.innerHTML = '';
+  subtitleList.appendChild(frag);
+  applyTrans();
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Custom smooth scroll (rAF-based, controllable easing) ──
+let scrollAnim = null;
+
+function smoothScrollTo(target, duration) {
+  const start = subtitleList.scrollTop;
+  const delta = target - start;
+  if (Math.abs(delta) < 1) return;
+  const startTime = performance.now();
+  if (scrollAnim) cancelAnimationFrame(scrollAnim);
+  function step(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    // Ease-out cubic
+    const ease = 1 - Math.pow(1 - progress, 3);
+    subtitleList.scrollTop = start + delta * ease;
+    if (progress < 1) scrollAnim = requestAnimationFrame(step);
+    else scrollAnim = null;
+  }
+  scrollAnim = requestAnimationFrame(step);
+}
+
+// ── Binary search: find cue index at time t ──
+function findCueIdx(t) {
+  if (!cues.length) return -1;
+  let lo = 0, hi = cues.length - 1, best = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (cues[mid].start <= t) { best = mid; lo = mid + 1; }
+    else { hi = mid - 1; }
+  }
+  // best is last cue whose start <= t; check if t is within its end
+  if (best >= 0 && t < cues[best].end) return best;
+  // between cues — return best (last passed) for context
+  return best;
+}
+
+function highlightCue(t) {
+  const idx = findCueIdx(t);
+  if (idx === currentIdx) return;
+  // Remove old active — O(1) via cached array
+  if (currentIdx >= 0 && cueEls[currentIdx]) cueEls[currentIdx].classList.remove('active');
+  currentIdx = idx;
+  if (idx >= 0 && cueEls[idx]) {
+    const el = cueEls[idx];
+    el.classList.add('active');
+    subtitleCount.textContent = (idx+1)+' / '+cues.length;
+    // Page-based scroll
+    // offsetTop is accurate because subtitle-list has position:relative
+    const listTop    = subtitleList.scrollTop;
+    const listBottom = listTop + subtitleList.clientHeight;
+    const elTop      = el.offsetTop;
+    const elBottom   = elTop + el.offsetHeight;
+
+    if (elBottom > listBottom) {
+      // Forward: keep previous cue at top
+      const prevEl = idx > 0 ? cueEls[idx - 1] : null;
+      const target  = prevEl ? prevEl.offsetTop - 8 : elTop - 8;
+      smoothScrollTo(target, 280);
+    } else if (elTop < listTop) {
+      // Backward or manual scroll: put active cue at top
+      smoothScrollTo(elTop - 8, 200);
+    }
+  }
+}
+
+function applyTrans() { subtitleList.classList.toggle('show-translation', showTrans); }
+toggleTrans.addEventListener('change', ()=>{ showTrans=toggleTrans.checked; applyTrans(); });
+
+// ─────────────────────────────────────────
+//  Font size control
+// ─────────────────────────────────────────
+const fontSizeSlider = document.getElementById('font-size-slider');
+const fontSizeLabel  = document.getElementById('font-size-label');
+
+function applyFontSize(px) {
+  document.documentElement.style.setProperty('--subtitle-font-size', px + 'px');
+  fontSizeLabel.textContent = '字 ' + px + 'px';
+  fontSizeSlider.value = px;
+}
+
+fontSizeSlider.addEventListener('input', () => applyFontSize(parseInt(fontSizeSlider.value)));
+document.getElementById('btn-font-dec').addEventListener('click', () => applyFontSize(Math.max(14, parseInt(fontSizeSlider.value) - 2)));
+document.getElementById('btn-font-inc').addEventListener('click', () => applyFontSize(Math.min(48, parseInt(fontSizeSlider.value) + 2)));
+
+// ─────────────────────────────────────────
+//  Load SRT
+// ─────────────────────────────────────────
+function loadSRT(file) {
+  const r = new FileReader();
+  r.onload = e => {
+    cues = parseSRT(e.target.result);
+    currentIdx = -1;
+    // Auto-toggle translation based on bilingual/monolingual detection
+    const hasTrans = cues.some(c => c.translation);
+    showTrans = hasTrans;
+    toggleTrans.checked = hasTrans;
+    applyTrans();
+    renderSubtitles();
+    document.getElementById('srt-info').classList.add('show');
+    document.getElementById('srt-name').textContent = file.name;
+    document.getElementById('srt-meta').textContent = cues.length+' 句字幕' + (hasTrans ? ' · 雙語' : '');
+    toast('✓ 字幕載入完畢 · '+cues.length+' 句' + (hasTrans ? ' (雙語)' : ''));
+  };
+  r.onerror = ()=>toast('⚠ 字幕讀取失敗');
+  r.readAsText(file, 'UTF-8');
+}
+
+// ─────────────────────────────────────────
+//  Handle file drop / select
+// ─────────────────────────────────────────
+function handleFiles(files) {
+  let mediaFile=null, srtFile=null;
+  for (const f of files) {
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (ext==='srt') srtFile=f;
+    else if (VIDEO_EXT.has(ext)||AUDIO_EXT.has(ext)) mediaFile=f;
+  }
+  if (!mediaFile && !srtFile) { toast('⚠ 請選取影音檔或 SRT 字幕'); return; }
+  if (mediaFile) loadMedia(mediaFile);
+  if (srtFile)   loadSRT(srtFile);
+}
+
+dropZone.addEventListener('dragover', e=>{ e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', ()=>dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e=>{ e.preventDefault(); dropZone.classList.remove('drag-over'); handleFiles([...e.dataTransfer.files]); });
+fileInput.addEventListener('change', ()=>{ handleFiles([...fileInput.files]); fileInput.value=''; });
+
+// ── Replace individual files by clicking info boxes ──
+document.getElementById('replace-audio-input').addEventListener('change', function() {
+  if (this.files.length) { loadMedia(this.files[0]); this.value=''; }
+});
+document.getElementById('replace-srt-input').addEventListener('change', function() {
+  if (this.files.length) { loadSRT(this.files[0]); this.value=''; }
+});
+subtitleList.addEventListener('dragover', e=>e.preventDefault());
+subtitleList.addEventListener('drop', e=>{ e.preventDefault(); handleFiles([...e.dataTransfer.files]); });
+
+
+// ─────────────────────────────────────────
+//  Unload all
+// ─────────────────────────────────────────
+function unloadAll() {
+  safeStop();
+  if (objURL) { URL.revokeObjectURL(objURL); objURL = null; }
+  if (activeMedia) {
+    activeMedia.removeAttribute('src');
+    activeMedia.load();
+  }
+  activeMedia = null;
+  videoWrap.classList.remove('show');
+  btnPlay.disabled = true;
+  btnPlay.textContent = '▶';
+  progressFill.style.width = '0%';
+  progressThumb.style.left = '0%';
+  progressThumb.style.opacity = '0';
+  timeDisplay.textContent = '00:00 / 00:00';
+  // Reset file info boxes
+  document.getElementById('audio-info').classList.remove('show');
+  document.getElementById('srt-info').classList.remove('show');
+  document.getElementById('audio-name').textContent = '—';
+  document.getElementById('audio-meta').textContent = '—';
+  document.getElementById('srt-name').textContent = '—';
+  document.getElementById('srt-meta').textContent = '—';
+  // Reset subtitles
+  cues = []; cueEls = []; currentIdx = -1;
+  renderSubtitles();
+  subtitleCount.textContent = '0 句';
+  // Hide unload button
+  document.getElementById('btn-unload').classList.remove('show');
+  toast('✓ 已卸載所有檔案');
+}
+
+</script>
+</body>
+</html>
